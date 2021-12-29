@@ -20,6 +20,10 @@ public class BasicSpawnerr : MonoBehaviour, INetworkRunnerCallbacks
     public NetworkPrefabRef goPlayer;
     [Header("畫布連線")]
     public GameObject goCanvas;
+    [Header("版本文字")]
+    public Text textVersion;
+    [Header("玩家生成位置")]
+    public Transform[] traSpawnPoints;
 
     /// <summary>
     /// 玩家輸入房間名稱
@@ -29,6 +33,18 @@ public class BasicSpawnerr : MonoBehaviour, INetworkRunnerCallbacks
     /// 連線執行器
     /// </summary>
     private NetworkRunner runner;
+    /// <summary>
+    /// 玩家資料集合: 玩家參考資訊，玩家連線物件
+    /// </summary>
+    private Dictionary<PlayerRef, NetworkObject> players = new Dictionary<PlayerRef, NetworkObject>();
+    private string stringVersion = "SHIH Copyright 2022 | Version ";
+    #endregion
+
+    #region 事件
+    private void Awake()
+    {
+        textVersion.text = stringVersion + Application.version;
+    }
     #endregion
 
     #region 方法
@@ -104,8 +120,33 @@ public class BasicSpawnerr : MonoBehaviour, INetworkRunnerCallbacks
 
     }
 
+    /// <summary>
+    /// 玩家連線輸入行為
+    /// </summary>
+    /// <param name="runner">連線執行器</param>
+    /// <param name="input">輸入資訊</param>
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
+        NetworkInputData inputData = new NetworkInputData();                    //新增 連栓線輸入資料 結構
+
+        #region 自訂輸入案件與移動資訊
+        if (Input.GetKey(KeyCode.W)) inputData.direction += Vector3.forward;
+        if (Input.GetKey(KeyCode.S)) inputData.direction += Vector3.back;
+        if (Input.GetKey(KeyCode.A)) inputData.direction += Vector3.left;
+        if (Input.GetKey(KeyCode.D)) inputData.direction += Vector3.right;
+
+        inputData.inputFire = Input.GetKey(KeyCode.Mouse0); //左鍵 發射
+        #endregion
+        #region 滑鼠座標處理
+        inputData.positionMouse = Input.mousePosition;                                  //取得 滑鼠座標
+        inputData.positionMouse.z = 60;                                                 //設定 滑鼠座標Z軸-可以打到3D物件，大於攝影機的Y
+        
+        Vector3 mouseToWorld = Camera.main.ScreenToWorldPoint(inputData.positionMouse); //透過API將滑鼠轉為世界座標
+        inputData.positionMouse = mouseToWorld;                                         //儲存轉換後的滑鼠座標
+        #endregion
+        input.Set(inputData);                               //輸入資訊.設定(連線輸入資訊)
+
+
 
     }
 
@@ -121,13 +162,25 @@ public class BasicSpawnerr : MonoBehaviour, INetworkRunnerCallbacks
     /// <param name="player">玩家資訊</param>
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
+        //隨機生成點 = Unity的隨機範圍(0,生成位置數量)
+        int randomSpawnPoint = UnityEngine.Random.Range(0, traSpawnPoints.Length);
         //連線執行,生成(物件、座標、角度、玩家資訊)
-        runner.Spawn(goPlayer, new Vector3(-5, 0, -10), Quaternion.identity, player);
+        NetworkObject playerNetworkObject = runner.Spawn(goPlayer, traSpawnPoints[randomSpawnPoint].position, Quaternion.identity, player);
+        //將玩家參考資訊與玩家連線物件添加到字典集合內
+        players.Add(player, playerNetworkObject);
     }
 
+    /// <summary>
+    /// 當玩家離開房間後
+    /// </summary>
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)
     {
-
+        //如果 離開的玩家連線物件 存在 就刪除
+        if (players.TryGetValue(player, out NetworkObject playerNetworkObject))
+        {
+            runner.Despawn(playerNetworkObject);  //連線執行器，取消生成(該玩家連線物件移除)
+            players.Remove(player);                //玩家集合.移除(該玩家)
+        }
     }
 
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ArraySegment<byte> data)
